@@ -1,0 +1,61 @@
+camera:
+  camera_id: demo-table-01
+  name: Demo Table 1
+  source_type: file_loop
+  source: data/demo.mp4
+  detector: synthetic
+  inference_fps: 5.0
+  display_fps: 15.0
+  confidence: 0.35
+  loop: true
+  auto_start: true
+  reconnect_seconds: 1.0
+  offline_after_seconds: 3.0
+zones:
+  - zone_id: table-1
+    name: Table 1
+    zone_type: table
+    polygon_normalized: [[0.12, 0.16], [0.88, 0.16], [0.94, 0.90], [0.06, 0.90]]
+    capacity: 6
+    dwell_alert_seconds: 12
+  - zone_id: seat-1
+    name: Seat 1
+    zone_type: seat
+    polygon_normalized: [[0.12, 0.16], [0.34, 0.16], [0.34, 0.40], [0.12, 0.40]]
+    capacity: 1
+    dwell_alert_seconds: 12
+  - zone_id: seat-2
+    name: Seat 2
+    zone_type: seat
+    polygon_normalized: [[0.39, 0.10], [0.61, 0.10], [0.61, 0.34], [0.39, 0.34]]
+    capacity: 1
+    dwell_alert_seconds: 12
+  - zone_id: seat-3
+    name: Seat 3
+    zone_type: seat
+    polygon_normalized: [[0.66, 0.16], [0.88, 0.16], [0.88, 0.40], [0.66, 0.40]]
+    capacity: 1
+    dwell_alert_seconds: 12
+  - zone_id: seat-4
+    name: Seat 4
+    zone_type: seat
+    polygon_normalized: [[0.66, 0.60], [0.90, 0.60], [0.90, 0.88], [0.66, 0.88]]
+    capacity: 1
+    dwell_alert_seconds: 12
+  - zone_id: seat-5
+    name: Seat 5
+    zone_type: seat
+    polygon_normalized: [[0.39, 0.66], [0.61, 0.66], [0.61, 0.94], [0.39, 0.94]]
+    capacity: 1
+    dwell_alert_seconds: 12
+  - zone_id: seat-6
+    name: Seat 6
+    zone_type: seat
+    polygon_normalized: [[0.10, 0.60], [0.34, 0.60], [0.34, 0.88], [0.10, 0.88]]
+    capacity: 1
+    dwell_alert_seconds: 12
+analytics:
+  enter_debounce_frames: 2
+  exit_debounce_frames: 2
+  metric_interval_seconds: 1.0
+
