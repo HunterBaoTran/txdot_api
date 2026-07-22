@@ -9,11 +9,12 @@ The default demo is deterministic and rights-safe: the backend generates an MP4 
 - OpenCV `FileLoopSource` and `WebcamSource` behind a replaceable `VideoSource` contract
 - rights-safe generated MP4 default; no recorded people or bundled licensed media
 - Ultralytics YOLO person detection and anonymous Supervision ByteTrack tracking
-- normalized polygon zones and a configurable six-seat table preset
+- interactive mouse/touch polygon drawing, vertex editing, and a configurable six-seat preset
+- SQLite-backed zone definitions with revision conflicts and live analytics reload
 - debounced occupancy, entries, exits, dwell, utilization, capacity, and source-health events
 - SQLite persistence through a repository boundary portable to PostgreSQL
 - FastAPI REST, OpenAPI, MJPEG stream, snapshot, controls, analyst feedback, and WebSocket updates
-- React + TypeScript dashboard with annotated video, KPIs, source health, seats, trend chart, and event feed
+- React + TypeScript dashboard with annotated video, KPIs, source health, seats, trend chart, zone-aware event feed, and zone editor
 - deterministic Pytest and Vitest coverage
 
 ## Requirements
@@ -62,6 +63,18 @@ Open <http://127.0.0.1:5173>. API docs are at <http://127.0.0.1:8000/docs>.
 
 The generated MP4 loop starts automatically. Occupancy changes are deliberately staged throughout its 18-second cycle so entries, exits, dwell alerts, seat state, utilization, trends, and events can be demonstrated without external footage.
 
+## Draw and edit zones
+
+1. Select **Edit zones** above the live feed.
+2. Select **New zone**, then click or tap around the video to place at least three polygon points.
+3. Click the first point or press Enter to finish drawing. Drag any point to reshape the polygon.
+4. Set the zone name, type, color, capacity, dwell threshold, and active state.
+5. Select **Save zone**. The running analytics pipeline adopts it immediately without restarting video.
+
+Existing zones can be selected from the editor list, reshaped, duplicated, disabled, or deleted. Deleting a zone does not delete its historical metrics or events. **Load six-seat preset** restores the original preset as editable records.
+
+Zone changes use revision checks. If another edit was saved first, the stale editor receives a conflict instead of overwriting it. Coordinates are normalized and account for letterboxing, so saved polygons remain aligned after resizing and restarting.
+
 ## Use a webcam or user-owned MP4
 
 Choose **Webcam 0 + YOLO** in the dashboard and select **Start source**. If device index `0` is unavailable, the pipeline remains alive, marks the source offline, records a neutral `source_offline` event, and retries.
@@ -80,7 +93,7 @@ Restart the backend. Do not add private footage, model weights, or generated dat
 
 ## Configuration
 
-`config/demo.yaml` contains the source, inference/display rates, reconnect policy, debounce settings, and normalized table/seat polygons. Coordinates are pairs in the `[0, 1]` range, so the preset scales with video resolution. Set `VERATEX_CONFIG` to use another YAML file and `VERATEX_DATABASE_URL` to select another SQLAlchemy database URL.
+`config/demo.yaml` contains the source, inference/display rates, reconnect policy, debounce settings, and the initial table/seat preset. YAML zones seed an empty camera database only; after that, SQLite is the runtime source of truth. Coordinates are pairs in the `[0, 1]` range, so polygons scale with video resolution. Set `VERATEX_CONFIG` to use another YAML file and `VERATEX_DATABASE_URL` to select another SQLAlchemy database URL.
 
 ## Checks
 
@@ -106,4 +119,3 @@ npm --prefix frontend run build
 Tracker IDs are ephemeral session-scoped labels, not identities. The POC performs no face recognition, biometric inference, demographic inference, intent classification, accusation, or automated enforcement. It stores metrics/events only and does not record full video. Human review is required. The synthetic detector is only for the generated demonstration; real sources use YOLO.
 
 This is a single-camera local pre-MVP, without production authentication, tenant isolation, VMS clip linkage, HA, GPU scheduling, or regulatory controls. See [architecture notes](docs/ARCHITECTURE.md), [API examples](docs/API_EXAMPLES.md), and the [10-minute demo script](docs/DEMO_SCRIPT.md).
-

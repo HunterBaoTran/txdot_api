@@ -33,8 +33,28 @@ export interface EventItem {
   severity: 'info' | 'warning' | 'critical'
   occurred_at: string
   track_id: number | null
-  attributes: Record<string, number | string>
+  attributes: Record<string, number | string | boolean>
   feedback_status: string | null
+}
+
+export type ZoneType = 'table' | 'seat' | 'queue' | 'dealer' | 'restricted'
+
+export interface ZoneConfig {
+  zone_id: string
+  name: string
+  zone_type: ZoneType
+  polygon_normalized: [number, number][]
+  capacity: number
+  dwell_alert_seconds: number
+  enabled: boolean
+  color: string | null
+}
+
+export interface ZoneCollection {
+  camera_id: string
+  revision: number
+  updated_at: string
+  zones: ZoneConfig[]
 }
 
 export interface SummaryPoint {
@@ -48,5 +68,6 @@ export interface LiveUpdate {
   camera: CameraState
   metrics: ZoneMetric[]
   events: EventItem[]
+  zones: ZoneConfig[]
+  zone_revision: number
 }
-

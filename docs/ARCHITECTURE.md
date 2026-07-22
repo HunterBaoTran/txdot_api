@@ -23,6 +23,8 @@ ZoneEngine -> EventEngine -> AnalyticsRepository -> SQLite
 
 `backend/app/video_sources.py`, `detectors.py`, `tracking.py`, `analytics.py`, `events.py`, and `repository.py` define the replaceable boundaries. The API never performs CV logic. WebSocket messages carry only normalized metadata; annotated frames use MJPEG and are never base64-encoded onto the event channel.
 
+Zone definitions and their revision are persisted in SQLite. YAML provides the first seed only. The dashboard draws drafts on a canvas aligned to the contained video image, sends normalized coordinates through revision-checked CRUD endpoints, and the pipeline atomically reconfigures `ZoneEngine`. Unchanged zones retain in-process visit state; changed or deleted geometry invalidates only affected active visits. Historical event and metric rows are never cascaded when a zone is deleted.
+
 The pipeline processes the latest decoded frame on a fixed display cadence and samples inference independently. OpenCV file reads rewind at EOF. Read/open failures close the adapter, update health, emit one deduplicated offline event for the incident, then retry without terminating FastAPI. There is no unbounded frame or message collection.
 
 Dwell duration uses monotonic process time, while persisted timestamps use timezone-aware UTC. Entry and exit require configurable consecutive observations. A dwell threshold emits once per track/zone visit. Completed visits contribute to average dwell, and current visits contribute while active.
@@ -39,4 +41,3 @@ An authorized Unity integration should add `RtspSource` or `VmsSource` implement
 - edge buffering, GPU scheduling, cross-camera correlation, AWS managed services
 - casino-specific model evaluation, labeled footage, and jurisdictional approvals
 - custom anomaly/VLM stages; these must remain human-reviewed and neutral
-

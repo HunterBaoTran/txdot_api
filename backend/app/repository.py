@@ -5,10 +5,23 @@ import os
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import DateTime, Float, Integer, String, Text, create_engine, desc, func, select
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    Integer,
+    String,
+    Text,
+    create_engine,
+    delete,
+    desc,
+    func,
+    select,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
-from .contracts import Event, SummaryPoint, ZoneMetric
+from .contracts import Event, SummaryPoint, ZoneCollection, ZoneConfig, ZoneMetric
+from .time import utc_now
 
 
 class Base(DeclarativeBase):
@@ -46,6 +59,36 @@ class MetricRow(Base):
     average_dwell_seconds: Mapped[float] = mapped_column(Float)
 
 
+class ZoneRow(Base):
+    __tablename__ = "zones"
+
+    camera_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    zone_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    zone_type: Mapped[str] = mapped_column(String(20))
+    polygon_json: Mapped[str] = mapped_column(Text)
+    capacity: Mapped[int] = mapped_column(Integer)
+    dwell_alert_seconds: Mapped[float] = mapped_column(Float)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    color: Mapped[str | None] = mapped_column(String(7))
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ZoneRevisionRow(Base):
+    __tablename__ = "zone_revisions"
+
+    camera_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ZoneRevisionConflict(Exception):
+    def __init__(self, current_revision: int) -> None:
+        super().__init__(f"Zone configuration changed; current revision is {current_revision}")
+        self.current_revision = current_revision
+
+
 class AnalyticsRepository(ABC):
     @abstractmethod
     def add_events(self, events: list[Event]) -> None: ...
@@ -76,6 +119,88 @@ class SqlAlchemyRepository(AnalyticsRepository):
         self.engine = create_engine(url, connect_args=connect_args)
         self.session_factory = sessionmaker(self.engine, expire_on_commit=False)
         Base.metadata.create_all(self.engine)
+
+    def seed_zones(self, camera_id: str, zones: list[ZoneConfig]) -> ZoneCollection:
+        with self.session_factory.begin() as session:
+            revision = session.get(ZoneRevisionRow, camera_id)
+            if revision is None:
+                now = utc_now()
+                revision = ZoneRevisionRow(camera_id=camera_id, revision=1, updated_at=now)
+                session.add(revision)
+                session.add_all(
+                    self._zone_row(camera_id, zone, index, now) for index, zone in enumerate(zones)
+                )
+        return self.zones(camera_id)
+
+    def zones(self, camera_id: str) -> ZoneCollection:
+        with Session(self.engine) as session:
+            revision = session.get(ZoneRevisionRow, camera_id)
+            if revision is None:
+                raise LookupError(f"No zone configuration for camera {camera_id}")
+            rows = session.scalars(
+                select(ZoneRow)
+                .where(ZoneRow.camera_id == camera_id)
+                .order_by(ZoneRow.sort_order, ZoneRow.zone_id)
+            )
+            return ZoneCollection(
+                camera_id=camera_id,
+                revision=revision.revision,
+                updated_at=_aware(revision.updated_at),
+                zones=[self._zone(row) for row in rows],
+            )
+
+    def create_zone(
+        self, camera_id: str, zone: ZoneConfig, expected_revision: int
+    ) -> ZoneCollection:
+        with self.session_factory.begin() as session:
+            revision = self._require_revision(session, camera_id, expected_revision)
+            if session.get(ZoneRow, (camera_id, zone.zone_id)) is not None:
+                raise ValueError(f"Zone {zone.zone_id} already exists")
+            max_order = session.scalar(
+                select(func.max(ZoneRow.sort_order)).where(ZoneRow.camera_id == camera_id)
+            )
+            now = utc_now()
+            session.add(self._zone_row(camera_id, zone, int(max_order or -1) + 1, now))
+            self._bump_revision(revision, now)
+        return self.zones(camera_id)
+
+    def update_zone(
+        self, camera_id: str, zone_id: str, zone: ZoneConfig, expected_revision: int
+    ) -> ZoneCollection:
+        if zone.zone_id != zone_id:
+            raise ValueError("Zone ID in the body must match the URL")
+        with self.session_factory.begin() as session:
+            revision = self._require_revision(session, camera_id, expected_revision)
+            row = session.get(ZoneRow, (camera_id, zone_id))
+            if row is None:
+                raise LookupError(f"Zone {zone_id} was not found")
+            now = utc_now()
+            self._apply_zone(row, zone, now)
+            self._bump_revision(revision, now)
+        return self.zones(camera_id)
+
+    def delete_zone(self, camera_id: str, zone_id: str, expected_revision: int) -> ZoneCollection:
+        with self.session_factory.begin() as session:
+            revision = self._require_revision(session, camera_id, expected_revision)
+            row = session.get(ZoneRow, (camera_id, zone_id))
+            if row is None:
+                raise LookupError(f"Zone {zone_id} was not found")
+            session.delete(row)
+            self._bump_revision(revision, utc_now())
+        return self.zones(camera_id)
+
+    def replace_zones(
+        self, camera_id: str, zones: list[ZoneConfig], expected_revision: int
+    ) -> ZoneCollection:
+        with self.session_factory.begin() as session:
+            revision = self._require_revision(session, camera_id, expected_revision)
+            now = utc_now()
+            session.execute(delete(ZoneRow).where(ZoneRow.camera_id == camera_id))
+            session.add_all(
+                self._zone_row(camera_id, zone, index, now) for index, zone in enumerate(zones)
+            )
+            self._bump_revision(revision, now)
+        return self.zones(camera_id)
 
     def add_events(self, events: list[Event]) -> None:
         if not events:
@@ -177,3 +302,61 @@ class SqlAlchemyRepository(AnalyticsRepository):
         with Session(self.engine) as session:
             session.execute(select(1))
         return True
+
+    @staticmethod
+    def _zone_row(
+        camera_id: str, zone: ZoneConfig, sort_order: int, updated_at: datetime
+    ) -> ZoneRow:
+        return ZoneRow(
+            camera_id=camera_id,
+            zone_id=zone.zone_id,
+            name=zone.name,
+            zone_type=zone.zone_type,
+            polygon_json=json.dumps(zone.polygon_normalized),
+            capacity=zone.capacity,
+            dwell_alert_seconds=zone.dwell_alert_seconds,
+            enabled=zone.enabled,
+            color=zone.color,
+            sort_order=sort_order,
+            updated_at=updated_at,
+        )
+
+    @staticmethod
+    def _apply_zone(row: ZoneRow, zone: ZoneConfig, updated_at: datetime) -> None:
+        row.name = zone.name
+        row.zone_type = zone.zone_type
+        row.polygon_json = json.dumps(zone.polygon_normalized)
+        row.capacity = zone.capacity
+        row.dwell_alert_seconds = zone.dwell_alert_seconds
+        row.enabled = zone.enabled
+        row.color = zone.color
+        row.updated_at = updated_at
+
+    @staticmethod
+    def _zone(row: ZoneRow) -> ZoneConfig:
+        return ZoneConfig(
+            zone_id=row.zone_id,
+            name=row.name,
+            zone_type=row.zone_type,
+            polygon_normalized=json.loads(row.polygon_json),
+            capacity=row.capacity,
+            dwell_alert_seconds=row.dwell_alert_seconds,
+            enabled=row.enabled,
+            color=row.color,
+        )
+
+    @staticmethod
+    def _require_revision(
+        session: Session, camera_id: str, expected_revision: int
+    ) -> ZoneRevisionRow:
+        revision = session.get(ZoneRevisionRow, camera_id)
+        if revision is None:
+            raise LookupError(f"No zone configuration for camera {camera_id}")
+        if revision.revision != expected_revision:
+            raise ZoneRevisionConflict(revision.revision)
+        return revision
+
+    @staticmethod
+    def _bump_revision(revision: ZoneRevisionRow, now: datetime) -> None:
+        revision.revision += 1
+        revision.updated_at = now

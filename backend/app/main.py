@@ -18,11 +18,14 @@ from .contracts import (
     FeedbackRequest,
     SourceSelection,
     SummaryPoint,
+    ZoneCollection,
     ZoneConfig,
     ZoneMetric,
+    ZoneMutationRequest,
+    ZonePresetRequest,
 )
 from .pipeline import VideoPipeline
-from .repository import SqlAlchemyRepository
+from .repository import SqlAlchemyRepository, ZoneRevisionConflict
 
 logging.basicConfig(
     level=os.getenv("VERATEX_LOG_LEVEL", "INFO"),
@@ -37,7 +40,12 @@ def create_app(
 ) -> FastAPI:
     app_config = config or load_config()
     repo = repository or SqlAlchemyRepository()
-    runtime = pipeline or VideoPipeline(app_config, repo)
+    preset_zones = [zone.model_copy(deep=True) for zone in app_config.zones]
+    initial_zones = repo.seed_zones(app_config.camera.camera_id, preset_zones)
+    app_config.zones = initial_zones.zones
+    runtime = pipeline or VideoPipeline(app_config, repo, initial_zones.revision)
+    if pipeline is not None:
+        runtime.replace_zones(initial_zones.zones, initial_zones.revision)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -133,7 +141,63 @@ def create_app(
 
     @app.get("/api/v1/zones", response_model=list[ZoneConfig])
     def zones() -> list[ZoneConfig]:
-        return app_config.zones
+        return runtime.live_state().zones
+
+    @app.get(
+        "/api/v1/cameras/{camera_id}/zones",
+        response_model=ZoneCollection,
+    )
+    def camera_zones(camera_id: str) -> ZoneCollection:
+        _require_camera(camera_id, app_config)
+        return repo.zones(camera_id)
+
+    @app.post(
+        "/api/v1/cameras/{camera_id}/zones",
+        response_model=ZoneCollection,
+        status_code=201,
+    )
+    def create_zone(camera_id: str, request: ZoneMutationRequest) -> ZoneCollection:
+        _require_camera(camera_id, app_config)
+        return _mutate_zones(
+            runtime,
+            lambda: repo.create_zone(camera_id, request.zone, request.revision),
+        )
+
+    @app.put(
+        "/api/v1/cameras/{camera_id}/zones/{zone_id}",
+        response_model=ZoneCollection,
+    )
+    def update_zone(camera_id: str, zone_id: str, request: ZoneMutationRequest) -> ZoneCollection:
+        _require_camera(camera_id, app_config)
+        return _mutate_zones(
+            runtime,
+            lambda: repo.update_zone(camera_id, zone_id, request.zone, request.revision),
+        )
+
+    @app.delete(
+        "/api/v1/cameras/{camera_id}/zones/{zone_id}",
+        response_model=ZoneCollection,
+    )
+    def delete_zone(
+        camera_id: str, zone_id: str, revision: int = Query(..., ge=0)
+    ) -> ZoneCollection:
+        _require_camera(camera_id, app_config)
+        return _mutate_zones(runtime, lambda: repo.delete_zone(camera_id, zone_id, revision))
+
+    @app.post(
+        "/api/v1/cameras/{camera_id}/zones/presets/{preset_id}",
+        response_model=ZoneCollection,
+    )
+    def load_zone_preset(
+        camera_id: str, preset_id: str, request: ZonePresetRequest
+    ) -> ZoneCollection:
+        _require_camera(camera_id, app_config)
+        if preset_id != "six-seat-table":
+            raise HTTPException(status_code=404, detail="Zone preset not found")
+        return _mutate_zones(
+            runtime,
+            lambda: repo.replace_zones(camera_id, preset_zones, request.revision),
+        )
 
     @app.get("/api/v1/metrics/current", response_model=list[ZoneMetric])
     def current_metrics(camera_id: str | None = None) -> list[ZoneMetric]:
@@ -171,6 +235,8 @@ def create_app(
                         "metrics": [item.model_dump(mode="json") for item in state.metrics],
                         "tracks": [item.model_dump(mode="json") for item in state.tracks],
                         "events": [item.model_dump(mode="json") for item in state.latest_events],
+                        "zones": [item.model_dump(mode="json") for item in state.zones],
+                        "zone_revision": state.zone_revision,
                     }
                 )
                 await asyncio.sleep(0.5)
@@ -183,6 +249,25 @@ def create_app(
 def _require_camera(camera_id: str, config: AppConfig) -> None:
     if camera_id != config.camera.camera_id:
         raise HTTPException(status_code=404, detail="Camera not found")
+
+
+def _mutate_zones(runtime: VideoPipeline, operation) -> ZoneCollection:
+    try:
+        collection = operation()
+    except ZoneRevisionConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": str(exc),
+                "current_revision": exc.current_revision,
+            },
+        ) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    runtime.replace_zones(collection.zones, collection.revision)
+    return collection
 
 
 app = create_app()

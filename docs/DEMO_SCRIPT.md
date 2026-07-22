@@ -12,13 +12,13 @@ Open the dashboard and point out the looping video, polygon table/seat zones, an
 
 Watch people enter the table. Call out current occupancy, occupied seats, utilization, entries/exits, average dwell, and the live seat strip. Explain normalized zone configuration and the six-seat preset.
 
-## 5:00–6:30 — Show deterministic events
+## 5:00–6:30 — Draw a custom zone
 
-Use the recent feed to show entered/occupied, capacity, exit/vacant, and dwell-threshold events. Acknowledge one and dismiss another to demonstrate the analyst-feedback foundation.
+Select **Edit zones**, choose **New zone**, and draw a polygon over part of the table. Name it, set its type and capacity, and save it. Show that the backend annotation and live metrics adopt the new zone without restarting the source. Mention that the six-seat layout is now an optional editable preset.
 
 ## 6:30–7:30 — Show history and API
 
-Point to the trend chart, then open `/docs`. Show health, cameras, current metrics, summaries, recent events, controls, and feedback. Emphasize UTC contracts and metadata-only WebSockets.
+Point to the zone-aware recent feed and trend chart, then open `/docs`. Show health, cameras, zone CRUD/revisions, current metrics, summaries, and recent events. Emphasize UTC contracts and metadata-only WebSockets.
 
 ## 7:30–8:30 — Show resilience
 
@@ -31,4 +31,3 @@ Use the architecture diagram to show where an authorized Unity RTSP/VMS adapter 
 ## 9:30–10:00 — Close with boundaries
 
 Reiterate: no facial recognition, identity, demographic inference, intent claims, automated enforcement, default video recording, or cloud dependency. Human review remains mandatory. Then name the production decisions intentionally deferred in `ARCHITECTURE.md`.
-

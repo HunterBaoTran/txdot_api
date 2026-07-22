@@ -4,7 +4,9 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
+
+from .zones import polygon_area, polygon_self_intersects
 
 
 class SourceStatus(StrEnum):
@@ -42,12 +44,43 @@ class TrackObservation(UTCModel):
 
 
 class ZoneConfig(BaseModel):
-    zone_id: str
-    name: str
-    zone_type: str
-    polygon_normalized: list[tuple[float, float]]
+    zone_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{1,63}$")
+    name: str = Field(min_length=1, max_length=80)
+    zone_type: str = Field(pattern="^(table|seat|queue|dealer|restricted)$")
+    polygon_normalized: list[tuple[float, float]] = Field(min_length=3, max_length=32)
     capacity: int = Field(ge=1)
     dwell_alert_seconds: float = Field(default=900, ge=0)
+    enabled: bool = True
+    color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+
+    @model_validator(mode="after")
+    def validate_polygon(self) -> ZoneConfig:
+        if any(x < 0 or x > 1 or y < 0 or y > 1 for x, y in self.polygon_normalized):
+            raise ValueError("polygon coordinates must be between 0 and 1")
+        unique = {(round(x, 6), round(y, 6)) for x, y in self.polygon_normalized}
+        if len(unique) != len(self.polygon_normalized):
+            raise ValueError("polygon points must be unique")
+        if polygon_self_intersects(self.polygon_normalized):
+            raise ValueError("polygon cannot intersect itself")
+        if polygon_area(self.polygon_normalized) < 0.0005:
+            raise ValueError("polygon area is too small")
+        return self
+
+
+class ZoneCollection(UTCModel):
+    camera_id: str
+    revision: int
+    updated_at: datetime
+    zones: list[ZoneConfig]
+
+
+class ZoneMutationRequest(BaseModel):
+    revision: int = Field(ge=0)
+    zone: ZoneConfig
+
+
+class ZonePresetRequest(BaseModel):
+    revision: int = Field(ge=0)
 
 
 class CameraConfig(BaseModel):

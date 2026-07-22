@@ -14,6 +14,8 @@ from .tracking import AnonymousTrack
 @dataclass(slots=True)
 class ZoneTransition:
     zone_id: str
+    zone_name: str
+    zone_type: str
     transition_type: str
     occurred_at: datetime
     track_id: int | None
@@ -197,6 +199,8 @@ class ZoneEngine:
     ) -> ZoneTransition:
         return ZoneTransition(
             zone_id=zone.zone_id,
+            zone_name=zone.name,
+            zone_type=zone.zone_type,
             transition_type=kind,
             occurred_at=occurred_at,
             track_id=track_id,
@@ -208,3 +212,16 @@ class ZoneEngine:
         self._visits.clear()
         self._totals.clear()
         self._last_occupancy.clear()
+
+    def reconfigure(self, zones: list[ZoneConfig]) -> None:
+        previous = {zone.zone_id: zone for zone in self.zones}
+        current = {zone.zone_id: zone for zone in zones}
+        changed = {
+            zone_id
+            for zone_id in previous.keys() | current.keys()
+            if previous.get(zone_id) != current.get(zone_id)
+        }
+        self._visits = {key: state for key, state in self._visits.items() if key[0] not in changed}
+        for zone_id in changed:
+            self._last_occupancy.pop(zone_id, None)
+        self.zones = zones

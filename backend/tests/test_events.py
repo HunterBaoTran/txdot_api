@@ -9,6 +9,8 @@ def test_event_contract_and_severity() -> None:
         [
             ZoneTransition(
                 zone_id="seat-1",
+                zone_name="Seat 1",
+                zone_type="seat",
                 transition_type="capacity_reached",
                 occurred_at=datetime(2026, 7, 21, tzinfo=UTC),
                 track_id=3,
@@ -18,5 +20,10 @@ def test_event_contract_and_severity() -> None:
         ]
     )[0]
     assert event.severity == "warning"
-    assert event.attributes == {"occupancy": 1, "capacity": 1}
+    assert event.attributes == {
+        "zone_name": "Seat 1",
+        "zone_type": "seat",
+        "occupancy": 1,
+        "capacity": 1,
+    }
     assert event.model_dump(mode="json")["occurred_at"].endswith("Z")

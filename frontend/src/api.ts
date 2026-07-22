@@ -1,4 +1,4 @@
-import type { EventItem, SummaryPoint } from './types'
+import type { EventItem, SummaryPoint, ZoneCollection, ZoneConfig } from './types'
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
@@ -36,10 +36,25 @@ export const api = {
   reset: (cameraId: string) => request(`/api/v1/cameras/${cameraId}/reset`, { method: 'POST' }),
   overlays: (cameraId: string, enabled: boolean) =>
     request(`/api/v1/cameras/${cameraId}/overlays?enabled=${enabled}`, { method: 'POST' }),
-  feedback: (eventId: string, status: 'acknowledged' | 'dismissed') =>
-    request<EventItem>(`/api/v1/events/${eventId}/feedback`, {
+  zones: (cameraId: string) =>
+    request<ZoneCollection>(`/api/v1/cameras/${cameraId}/zones`),
+  createZone: (cameraId: string, zone: ZoneConfig, revision: number) =>
+    request<ZoneCollection>(`/api/v1/cameras/${cameraId}/zones`, {
       method: 'POST',
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ revision, zone }),
+    }),
+  updateZone: (cameraId: string, zone: ZoneConfig, revision: number) =>
+    request<ZoneCollection>(`/api/v1/cameras/${cameraId}/zones/${zone.zone_id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ revision, zone }),
+    }),
+  deleteZone: (cameraId: string, zoneId: string, revision: number) =>
+    request<ZoneCollection>(`/api/v1/cameras/${cameraId}/zones/${zoneId}?revision=${revision}`, {
+      method: 'DELETE',
+    }),
+  loadPreset: (cameraId: string, revision: number) =>
+    request<ZoneCollection>(`/api/v1/cameras/${cameraId}/zones/presets/six-seat-table`, {
+      method: 'POST',
+      body: JSON.stringify({ revision }),
     }),
 }
-

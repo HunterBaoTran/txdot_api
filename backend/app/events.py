@@ -27,6 +27,8 @@ class EventEngine:
                 occurred_at=item.occurred_at,
                 track_id=item.track_id,
                 attributes={
+                    "zone_name": item.zone_name,
+                    "zone_type": item.zone_type,
                     "occupancy": item.occupancy,
                     "capacity": item.capacity,
                     **(

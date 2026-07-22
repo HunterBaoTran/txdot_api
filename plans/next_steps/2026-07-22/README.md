@@ -3,6 +3,8 @@
 **Date:** July 22, 2026  
 **Goal:** Replace the demo’s fixed polygon-only workflow with an interactive dashboard editor where an operator can draw, edit, save, and activate zones directly over the live camera view.
 
+**Implementation status:** Completed. The dashboard now provides canvas drawing and vertex editing; SQLite persists revisioned camera zones; the live pipeline reloads saved geometry without restart; custom zone names flow into the activity feed; CRUD, conflict, geometry, persistence, coordinate-mapping, editor, and event-description tests are included.
+
 ## Desired user experience
 
 1. Open a camera and select **Edit zones**.

@@ -15,6 +15,7 @@ from .contracts import (
     SourceSelection,
     SourceStatus,
     TrackObservation,
+    ZoneConfig,
     ZoneMetric,
 )
 from .demo_video import ensure_demo_video
@@ -34,10 +35,14 @@ class LiveState:
     metrics: list[ZoneMetric]
     tracks: list[TrackObservation]
     latest_events: list[Event]
+    zones: list[ZoneConfig]
+    zone_revision: int
 
 
 class VideoPipeline:
-    def __init__(self, config: AppConfig, repository: AnalyticsRepository) -> None:
+    def __init__(
+        self, config: AppConfig, repository: AnalyticsRepository, zone_revision: int = 1
+    ) -> None:
         self.config = config
         self.repository = repository
         self._lock = threading.RLock()
@@ -46,7 +51,11 @@ class VideoPipeline:
         self._source: VideoSource | None = None
         self._detector: PersonDetector | None = None
         self._tracker: MultiObjectTracker | None = None
-        self._zone_engine = ZoneEngine(config.camera.camera_id, config.zones, config.analytics)
+        self._zone_engine = ZoneEngine(
+            config.camera.camera_id,
+            [zone for zone in config.zones if zone.enabled],
+            config.analytics,
+        )
         self._event_engine = EventEngine(config.camera.camera_id)
         self._metrics: list[ZoneMetric] = []
         self._tracks: list[TrackObservation] = []
@@ -54,6 +63,7 @@ class VideoPipeline:
         self._jpeg: bytes | None = None
         self._show_overlays = True
         self._offline_event_sent = False
+        self._zone_revision = zone_revision
         self.camera = CameraState(
             camera_id=config.camera.camera_id,
             name=config.camera.name,
@@ -96,6 +106,18 @@ class VideoPipeline:
     def toggle_overlays(self, enabled: bool) -> None:
         self._show_overlays = enabled
 
+    def replace_zones(self, zones: list[ZoneConfig], revision: int) -> None:
+        active_zones = [zone for zone in zones if zone.enabled]
+        with self._lock:
+            self.config.zones = zones
+            self._zone_engine.reconfigure(active_zones)
+            self._metrics = [
+                metric
+                for metric in self._metrics
+                if any(zone.zone_id == metric.zone_id for zone in active_zones)
+            ]
+            self._zone_revision = revision
+
     def snapshot(self) -> bytes | None:
         with self._lock:
             return self._jpeg
@@ -107,6 +129,8 @@ class VideoPipeline:
                 metrics=[item.model_copy(deep=True) for item in self._metrics],
                 tracks=[item.model_copy(deep=True) for item in self._tracks],
                 latest_events=[item.model_copy(deep=True) for item in self._latest_events],
+                zones=[item.model_copy(deep=True) for item in self.config.zones],
+                zone_revision=self._zone_revision,
             )
 
     def _prepare(self) -> None:
@@ -167,7 +191,10 @@ class VideoPipeline:
                         self.camera.fps_inference = camera.inference_fps
                     with self._lock:
                         annotated = annotate_frame(
-                            packet.frame, self.config.zones, self._tracks, self._show_overlays
+                            packet.frame,
+                            [zone for zone in self.config.zones if zone.enabled],
+                            self._tracks,
+                            self._show_overlays,
                         )
                         self._jpeg = encode_jpeg(annotated)
                     self.camera.processing_latency_ms = round(

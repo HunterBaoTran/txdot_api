@@ -9,7 +9,16 @@ ZONE_COLORS = {
     "table": (66, 196, 166),
     "seat": (80, 154, 255),
     "restricted": (92, 92, 239),
+    "queue": (225, 164, 78),
+    "dealer": (188, 112, 225),
 }
+
+
+def _hex_to_bgr(value: str | None, fallback: tuple[int, int, int]) -> tuple[int, int, int]:
+    if not value:
+        return fallback
+    red, green, blue = (int(value[index : index + 2], 16) for index in (1, 3, 5))
+    return blue, green, red
 
 
 def annotate_frame(
@@ -27,7 +36,7 @@ def annotate_frame(
                 [(int(x * width), int(y * height)) for x, y in zone.polygon_normalized],
                 dtype=np.int32,
             )
-            color = ZONE_COLORS.get(zone.zone_type, (180, 180, 180))
+            color = _hex_to_bgr(zone.color, ZONE_COLORS.get(zone.zone_type, (180, 180, 180)))
             cv2.fillPoly(overlay, [points], color)
             cv2.polylines(output, [points], True, color, 2)
             anchor = tuple(points[0])
